@@ -111,6 +111,12 @@ function AppInner() {
       setCurrentWorksheetDate((prevDate) => {
         // Do not auto-advance if Manager is editing a past sheet
         if (managerEditingDate) return prevDate;
+        // Do not auto-advance if there is an active un-settled sheet waiting for morning purchase/settlement
+        const hasUnsettled = updatedSheets.some((s) => s.status !== 'settled');
+        if (hasUnsettled) {
+          const activeS = updatedSheets.find((s) => s.status !== 'settled');
+          return activeS ? activeS.date : prevDate;
+        }
         // If the date is older than today or night shift, auto-advance
         if (prevDate < effective.actualDateStr) {
           return effective.dateStr;
@@ -245,20 +251,30 @@ function AppInner() {
 
   // Get or Create Worksheet for Date
   const targetWorksheetDate = currentWorksheetDate;
-  const currentSheet =
-    (managerEditingDate
-      ? dailySheets.find((s) => s.id === managerEditingDate) ||
-        dailySheets.find((s) => s.date === managerEditingDate && s.status === 'settled') ||
-        dailySheets.find((s) => s.date === managerEditingDate)
-      : null) ||
+
+  // 1. Explicit Manager edit mode from Reports
+  const managerSheet = managerEditingDate
+    ? dailySheets.find((s) => s.id === managerEditingDate) ||
+      dailySheets.find((s) => s.date === managerEditingDate && s.status === 'settled') ||
+      dailySheets.find((s) => s.date === managerEditingDate)
+    : null;
+
+  // 2. Active un-settled worksheet (e.g. night orders draft in progress, waiting for morning purchase and settlement)
+  const activeUnsettledSheet =
+    dailySheets.find((s) => s.status !== 'settled' && (s.nightOrdersSaved || s.status === 'saved_night')) ||
     dailySheets.find((s) => s.date === currentWorksheetDate && s.status !== 'settled') ||
+    dailySheets.find((s) => s.status !== 'settled');
+
+  const currentSheet =
+    managerSheet ||
+    activeUnsettledSheet ||
     dailySheets.find((s) => s.date === currentWorksheetDate) ||
     dailySheets[0] || {
       id: `sheet_${targetWorksheetDate}`,
       date: targetWorksheetDate,
       dayName: getArabicDayName(targetWorksheetDate),
       status: 'open',
-      rows: [],
+      rows: generateCleanRows(items, suppliers, groceries, targetWorksheetDate),
       totalCost: 0,
       totalSale: 0,
       totalProfit: 0,
@@ -278,6 +294,18 @@ function AppInner() {
       }
       return [updated, ...prev];
     });
+  };
+
+  // Save Night Orders directly to Supabase and keep active in dailySheets
+  const handleSaveNightOrders = async (
+    sheetToSave: DailySheet
+  ): Promise<{ success: boolean; error?: string }> => {
+    const nextSheets = dailySheets.some((s) => s.id === sheetToSave.id)
+      ? dailySheets.map((s) => (s.id === sheetToSave.id ? sheetToSave : s))
+      : [sheetToSave, ...dailySheets];
+
+    setDailySheets(nextSheets);
+    return await StorageService.saveDailySheetDirect(sheetToSave);
   };
 
   // Helper to recompute balances from all settled sheets and vouchers accurately without duplication
@@ -890,6 +918,7 @@ function AppInner() {
             settings={settings}
             currentRole={currentRole}
             onUpdateSheet={handleUpdateSheet}
+            onSaveNightOrders={handleSaveNightOrders}
             onOpenAddItem={() => setIsItemModalOpen(true)}
             onOpenAddSupplier={() => setIsSupplierModalOpen(true)}
             onOpenPrintModal={(type) => {

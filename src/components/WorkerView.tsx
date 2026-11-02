@@ -36,6 +36,7 @@ interface WorkerViewProps {
   settings: SystemSettings;
   currentRole: 'worker' | 'admin' | 'grocery';
   onUpdateSheet: (updated: DailySheet) => void;
+  onSaveNightOrders?: (sheet: DailySheet) => Promise<{ success: boolean; error?: string }>;
   onOpenAddItem: () => void;
   onOpenAddSupplier: () => void;
   onOpenPrintModal: (type: 'daily_invoice' | 'morning_sort') => void;
@@ -55,6 +56,7 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
   settings,
   currentRole,
   onUpdateSheet,
+  onSaveNightOrders,
   onOpenAddItem,
   onOpenAddSupplier,
   onOpenPrintModal,
@@ -67,6 +69,7 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
 }) => {
   // Tabs: 'night_orders' (طلبات الليل والشراء) vs 'morning_sort' (فرز وتوزيع الصباح)
   const [activeTab, setActiveTab] = useState<'night_orders' | 'morning_sort'>('night_orders');
+  const [isSavingNightOrders, setIsSavingNightOrders] = useState(false);
   // View mode is fixed to 'table' (الجدول الافتراضي) as required
   const viewMode = 'table' as 'table' | 'cards';
   // Selected grocery for the mobile cards stepper (kept for compatibility)
@@ -326,8 +329,8 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
     });
   };
 
-  // Save Night Orders & Auto Generate Morning Sort Sheet
-  const handleSaveNightOrders = () => {
+  // Save Night Orders & Auto Generate Morning Sort Sheet with direct database persistence
+  const handleSaveNightOrders = async () => {
     const totalQty = sheet.rows.reduce((sum, r) => sum + r.totalQuantity, 0);
 
     const updatedRows = sheet.rows.map((row) => {
@@ -352,26 +355,39 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
       updatedAt: `${getYemenNow().dateStr} ${getYemenNow().time12}`,
     };
 
-    onUpdateSheet(updatedSheet);
-
+    setIsSavingNightOrders(true);
     try {
-      confetti({
-        particleCount: 80,
-        spread: 70,
-        origin: { y: 0.6 },
-      });
-    } catch {
-      // ignore
+      if (onSaveNightOrders) {
+        const res = await onSaveNightOrders(updatedSheet);
+        if (!res.success) {
+          alert(`❌ تعذر حفظ طلبات الليل في قاعدة البيانات:\n${res.error || 'خطأ في الاتصال'}\nيرجى إعادة المحاولة.`);
+          return;
+        }
+      } else {
+        onUpdateSheet(updatedSheet);
+      }
+
+      try {
+        confetti({
+          particleCount: 80,
+          spread: 70,
+          origin: { y: 0.6 },
+        });
+      } catch {
+        // ignore
+      }
+
+      onAddAuditLog(
+        'حفظ طلبات الليل وتوليد فرز الصباح',
+        `كشف ${sheet.dayName} ${sheet.date}`,
+        '',
+        `تم حفظ ${sheet.rows.length} صنف بإجمالي ${totalQty} وحدة في قاعدة البيانات كمسودة نشطة وتوليد جداول فرز الصباح`
+      );
+
+      alert('✅ [🌙 تم حفظ طلبات الليل والكميات بنجاح في قاعدة البيانات وبقائها ثابتة في الجدول لحين الترحيل!]');
+    } finally {
+      setIsSavingNightOrders(false);
     }
-
-    onAddAuditLog(
-      'حفظ طلبات الليل وتوليد فرز الصباح',
-      `كشف ${sheet.dayName} ${sheet.date}`,
-      '',
-      `تم تثبيت ${sheet.rows.length} صنف بإجمالي ${totalQty} وحدة وتوليد جداول فرز الصباح`
-    );
-
-    alert('✅ [🌙 تم حفظ طلبات الليل وتثبيت الجدول السفلي وبطاقات الفرز بنجاح!]');
   };
 
   // Validate required prices before settling or saving manager edit
@@ -711,11 +727,22 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
 
         <div className="flex flex-wrap items-center gap-2">
           <button
+            type="button"
+            disabled={isSavingNightOrders}
             onClick={handleSaveNightOrders}
-            className="flex items-center gap-2 px-4 py-2 text-xs sm:text-sm font-black text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-md cursor-pointer active:scale-95 whitespace-nowrap"
+            className="flex items-center gap-2 px-4 py-2 text-xs sm:text-sm font-black text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 rounded-xl transition-all shadow-md cursor-pointer active:scale-95 whitespace-nowrap"
           >
-            <Save className="w-4 h-4" />
-            <span>🌙 حفظ طلبات الليل وإنشاء الجدول السفلي</span>
+            {isSavingNightOrders ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span>جارٍ الحفظ في قاعدة البيانات...</span>
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                <span>🌙 حفظ طلبات الليل وإنشاء الجدول السفلي</span>
+              </>
+            )}
           </button>
 
           <button

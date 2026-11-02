@@ -537,46 +537,65 @@ export const StorageService = {
       return sheets;
     }
 
-    // Check if the current effective market sheet exists
-    const exists = sheets.some((s) => s.date === effective.dateStr);
+    // Check if there is already an active un-settled sheet (night orders in progress or active draft)
+    const activeUnsettled = sheets.find((s) => s.status !== 'settled');
 
-    if (!exists) {
-      // Auto-create new sheet for the effective market date
-      const cleanRows = generateCleanRows(items, suppliers, groceries, effective.dateStr);
+    // Only auto-create a new clean sheet for the effective date if there is NO un-settled sheet currently waiting to be settled!
+    if (!activeUnsettled) {
+      const exists = sheets.some((s) => s.date === effective.dateStr);
 
-      const effectiveSheet: DailySheet = {
-        id: `sheet_${effective.dateStr}`,
-        date: effective.dateStr,
-        dayName: effective.dayName,
-        status: 'open',
-        rows: cleanRows,
-        totalCost: 0,
-        totalSale: 0,
-        totalProfit: 0,
-        notes: effective.isNightShift
-          ? `كشف اليومية - وردية الليل لتجهيز مشتريات ${effective.dayName}`
-          : `كشف اليومية الرسمي ليوم ${effective.dayName}`,
-        nightOrdersSaved: false,
-        morningSortGenerated: false,
-        createdAt: `${effective.dateStr} 00:00:00`,
-        updatedAt: `${effective.dateStr} 00:00:00`,
-      };
+      if (!exists) {
+        // Auto-create new sheet for the effective market date
+        const cleanRows = generateCleanRows(items, suppliers, groceries, effective.dateStr);
 
-      sheets = [effectiveSheet, ...sheets];
-      saveToStorage(STORAGE_KEYS.DAILY_SHEETS, sheets);
+        const effectiveSheet: DailySheet = {
+          id: `sheet_${effective.dateStr}`,
+          date: effective.dateStr,
+          dayName: effective.dayName,
+          status: 'open',
+          rows: cleanRows,
+          totalCost: 0,
+          totalSale: 0,
+          totalProfit: 0,
+          notes: effective.isNightShift
+            ? `كشف اليومية - وردية الليل لتجهيز مشتريات ${effective.dayName}`
+            : `كشف اليومية الرسمي ليوم ${effective.dayName}`,
+          nightOrdersSaved: false,
+          morningSortGenerated: false,
+          createdAt: `${effective.dateStr} 00:00:00`,
+          updatedAt: `${effective.dateStr} 00:00:00`,
+        };
+
+        sheets = [effectiveSheet, ...sheets];
+        saveToStorage(STORAGE_KEYS.DAILY_SHEETS, sheets);
+      }
     } else {
-      // If an open sheet has 0 rows while master items exist, populate clean rows
+      // Ensure the un-settled sheet contains all current master items and groceries without overwriting existing quantities
       let updated = false;
       sheets = sheets.map((s) => {
-        if (s.status !== 'settled' && (!s.rows || s.rows.length === 0) && items.length > 0) {
-          updated = true;
-          return {
-            ...s,
-            rows: generateCleanRows(items, suppliers, groceries, s.date),
-            totalCost: 0,
-            totalSale: 0,
-            totalProfit: 0,
-          };
+        if (s.status !== 'settled') {
+          if (!s.rows || s.rows.length === 0) {
+            updated = true;
+            return {
+              ...s,
+              rows: generateCleanRows(items, suppliers, groceries, s.date),
+              totalCost: 0,
+              totalSale: 0,
+              totalProfit: 0,
+            };
+          }
+
+          // Check if any item from master items is missing from rows
+          const existingItemIds = new Set(s.rows.map((r) => r.itemId));
+          const missingItems = items.filter((it) => !existingItemIds.has(it.id));
+          if (missingItems.length > 0) {
+            updated = true;
+            const extraRows = generateCleanRows(missingItems, suppliers, groceries, s.date);
+            return {
+              ...s,
+              rows: [...s.rows, ...extraRows],
+            };
+          }
         }
         return s;
       });
@@ -589,6 +608,20 @@ export const StorageService = {
   },
   saveDailySheets(sheets: DailySheet[]): void {
     saveToStorage(STORAGE_KEYS.DAILY_SHEETS, sheets);
+  },
+
+  /**
+   * Directly saves a daily sheet to memory and immediately flushes it to Supabase (app_records)
+   * returning true on successful database confirmation.
+   */
+  async saveDailySheetDirect(sheet: DailySheet): Promise<{ success: boolean; error?: string }> {
+    const currentSheets = this.getDailySheets();
+    const nextSheets = currentSheets.some((s) => s.id === sheet.id)
+      ? currentSheets.map((s) => (s.id === sheet.id ? sheet : s))
+      : [sheet, ...currentSheets];
+
+    this.saveDailySheets(nextSheets);
+    return await this.flushAll();
   },
 
   getVouchers(): Voucher[] {
