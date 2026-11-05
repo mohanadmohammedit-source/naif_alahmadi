@@ -236,6 +236,44 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
     onAddAuditLog('إضافة منتج للكشف', item.name, '', `سعر البيع الافتراضي: ${item.defaultSalePrice} ر.ي`);
   };
 
+  // Change Item directly from the table or card row
+  const handleRowItemChange = (rowId: string, newItemId: string) => {
+    if (isLocked) return;
+    const selectedItem = items.find((it) => it.id === newItemId);
+    if (!selectedItem) return;
+
+    // Prevent duplicate item rows if another row already has this item
+    const isDuplicate = sheet.rows.some(
+      (r) => r.id !== rowId && (r.itemId === selectedItem.id || r.itemName.trim() === selectedItem.name.trim())
+    );
+    if (isDuplicate) {
+      alert(`⚠️ الصنف "${selectedItem.name}" موجود بالفعل في صف آخر داخل الكشف!`);
+      return;
+    }
+
+    const oldItemName = sheet.rows.find((r) => r.id === rowId)?.itemName || '';
+
+    const updatedRows = sheet.rows.map((row) => {
+      if (row.id !== rowId) return row;
+      const costPrice = selectedItem.defaultCostPrice || row.costPrice || 0;
+      const salePrice = costPrice;
+      const totalCost = Math.round((Number(row.totalQuantity) || 0) * costPrice * 100) / 100;
+      return {
+        ...row,
+        itemId: selectedItem.id,
+        itemName: selectedItem.name,
+        unit: selectedItem.unit,
+        costPrice,
+        salePrice,
+        totalCost,
+        totalSale: totalCost,
+      };
+    });
+
+    onAddAuditLog('تغيير صنف الصف', `${oldItemName} -> ${selectedItem.name}`, oldItemName, selectedItem.name);
+    recalculateAndSave(updatedRows);
+  };
+
   // Purchase Status Toggle
   const togglePurchaseStatus = (rowId: string) => {
     const row = sheet.rows.find((r) => r.id === rowId);
@@ -686,34 +724,6 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
             <span>+ إضافة منتج جديد</span>
           </button>
 
-          {/* Quick select from available master products */}
-          {availableItemsToAdd.length > 0 && (
-            <div className="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-xl border border-slate-200">
-              <span className="text-[11px] text-slate-600 font-bold whitespace-nowrap hidden sm:inline">
-                أصناف مسجلة:
-              </span>
-              <select
-                onChange={(e) => {
-                  if (e.target.value) {
-                    handleAddProductToSheet(e.target.value);
-                    e.target.value = '';
-                  }
-                }}
-                defaultValue=""
-                className="text-xs bg-white border border-slate-300 font-bold text-slate-800 py-1 px-2 rounded-lg cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#006266]"
-              >
-                <option value="" disabled>
-                  + اختر منتج لإضافته للكشف ({availableItemsToAdd.length})
-                </option>
-                {availableItemsToAdd.map((it) => (
-                  <option key={it.id} value={it.id}>
-                    {it.name} ({it.unit}) - بيع: {it.defaultSalePrice} ر.ي
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
           {(currentRole === 'admin' || settings.permissions.workerCanAddSupplier) && (
             <button
               onClick={onOpenAddSupplier}
@@ -880,10 +890,34 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
                               {index + 1}
                             </span>
                             <div className="flex items-baseline gap-1.5 whitespace-nowrap">
-                              <h3 className="font-black text-lg text-slate-900">{row.itemName}</h3>
-                              <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
-                                {row.unit}
-                              </span>
+                              <select
+                                disabled={isLocked}
+                                value={row.itemId}
+                                onWheel={(e) => (e.target as HTMLElement).blur()}
+                                onChange={(e) => {
+                                  if (e.target.value === '__ADD_NEW__') {
+                                    onOpenAddItem();
+                                  } else {
+                                    handleRowItemChange(row.id, e.target.value);
+                                  }
+                                }}
+                                className="font-black text-base text-slate-900 bg-transparent border-b border-dashed border-slate-300 focus:outline-none focus:border-[#006266] py-0.5 pr-1 pl-4 cursor-pointer max-w-[190px] truncate"
+                                title="اختيار الصنف من قاعدة البيانات"
+                              >
+                                {items.map((it) => (
+                                  <option key={it.id} value={it.id}>
+                                    {it.name} ({it.unit})
+                                  </option>
+                                ))}
+                                {!items.some((it) => it.id === row.itemId) && (
+                                  <option value={row.itemId}>
+                                    {row.itemName} ({row.unit})
+                                  </option>
+                                )}
+                                <option value="__ADD_NEW__" className="font-bold text-[#006266]">
+                                  + إضافة صنف جديد...
+                                </option>
+                              </select>
                             </div>
                           </div>
 
@@ -920,10 +954,12 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
                           <select
                             disabled={isLocked}
                             value={row.supplierId}
+                            onWheel={(e) => (e.target as HTMLElement).blur()}
                             onChange={(e) => handleSupplierChange(row.id, e.target.value)}
                             className="bg-transparent font-bold text-slate-800 focus:outline-none text-xs truncate max-w-[200px]"
                           >
-                            {suppliers.length === 0 && <option value="">مورد عام (أضف مورداً)</option>}`r`n                            {suppliers.map((s) => (
+                            {suppliers.length === 0 && <option value="">مورد عام (أضف مورداً)</option>}
+                            {suppliers.map((s) => (
                               <option key={s.id} value={s.id}>
                                 {s.name}
                               </option>
@@ -1127,20 +1163,48 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
                         <td className="p-2 text-center font-mono text-slate-400 text-xs">
                           {index + 1}
                         </td>
-                        <td className="p-2.5 font-bold text-slate-900 sticky right-0 bg-inherit z-10 shadow-xs border-l border-slate-200 whitespace-nowrap">
-                          <span className="text-base text-slate-900">{row.itemName}</span>{' '}
-                          <span className="text-[10px] font-normal text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded">
-                            {row.unit}
-                          </span>
+                        <td className="p-2 font-bold text-slate-900 sticky right-0 bg-inherit z-10 shadow-xs border-l border-slate-200 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            <select
+                              disabled={isLocked}
+                              value={row.itemId}
+                              onWheel={(e) => (e.target as HTMLElement).blur()}
+                              onChange={(e) => {
+                                if (e.target.value === '__ADD_NEW__') {
+                                  onOpenAddItem();
+                                } else {
+                                  handleRowItemChange(row.id, e.target.value);
+                                }
+                              }}
+                              className="text-xs font-black text-slate-900 bg-white border border-slate-300 rounded-lg py-1 px-2 focus:outline-none focus:ring-1 focus:ring-[#006266] cursor-pointer max-w-[160px] truncate"
+                              title="اختيار الصنف من قاعدة البيانات"
+                            >
+                              {items.map((it) => (
+                                <option key={it.id} value={it.id}>
+                                  {it.name} ({it.unit})
+                                </option>
+                              ))}
+                              {!items.some((it) => it.id === row.itemId) && (
+                                <option value={row.itemId}>
+                                  {row.itemName} ({row.unit})
+                                </option>
+                              )}
+                              <option value="__ADD_NEW__" className="font-bold text-[#006266]">
+                                + صنف جديد...
+                              </option>
+                            </select>
+                          </div>
                         </td>
                         <td className="p-2">
                           <select
                             disabled={isLocked}
                             value={row.supplierId}
+                            onWheel={(e) => (e.target as HTMLElement).blur()}
                             onChange={(e) => handleSupplierChange(row.id, e.target.value)}
                             className="w-full text-xs p-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none truncate"
                           >
-                            {suppliers.length === 0 && <option value="">مورد عام (أضف مورداً)</option>}`r`n                            {suppliers.map((s) => (
+                            {suppliers.length === 0 && <option value="">مورد عام (أضف مورداً)</option>}
+                            {suppliers.map((s) => (
                               <option key={s.id} value={s.id}>
                                 {s.name}
                               </option>
@@ -1169,6 +1233,10 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
                                   step="0.25"
                                   disabled={isLocked}
                                   value={qty === 0 ? '' : qty}
+                                  onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                                  }}
                                   onChange={(e) => {
                                     const val = parseFloat(e.target.value);
                                     handleSetQuantity(row.id, g.id, isNaN(val) ? 0 : val, false);
@@ -1198,6 +1266,10 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
                             step="0.25"
                             disabled={isLocked}
                             value={row.totalQuantity === 0 ? '' : row.totalQuantity}
+                            onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                            onKeyDown={(e) => {
+                              if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                            }}
                             onChange={(e) => {
                               const val = parseFloat(e.target.value);
                               handleRowTotalQtyChange(row.id, isNaN(val) ? 0 : val);
@@ -1216,6 +1288,10 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
                               step="any"
                               disabled={isLocked}
                               value={row.costPrice === 0 ? '' : row.costPrice}
+                              onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                              onKeyDown={(e) => {
+                                if (e.key === 'ArrowUp' || e.key === 'ArrowDown') e.preventDefault();
+                              }}
                               onChange={(e) =>
                                 handlePriceChange(
                                   row.id,

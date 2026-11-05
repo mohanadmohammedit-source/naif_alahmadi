@@ -269,7 +269,7 @@ export function generateCleanRows(items: VegetableItem[], suppliers: Supplier[],
     });
 
     return {
-      id: `row_${dateStr}_${item.id}_${index}`,
+      id: `row_${dateStr}_${item.id}`,
       itemId: item.id,
       itemName: item.name,
       unit: item.unit,

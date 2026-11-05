@@ -751,17 +751,59 @@ function AppInner() {
     return { success: true };
   };
 
-  // Add Item to System & Current Worksheet
+  // Add Item to System & Current Worksheet with duplicate prevention
   const handleAddItem = (newItemData: Omit<VegetableItem, 'id'>) => {
+    const cleanName = newItemData.name.trim();
+    if (!cleanName) return;
+
+    // Check duplicate name
+    const existing = items.find(
+      (it) => it.name.trim().toLowerCase() === cleanName.toLowerCase()
+    );
+
+    if (existing) {
+      alert(`⚠️ الصنف "${cleanName}" مسجل مسبقاً في قاعدة البيانات!`);
+      const alreadyInSheet = currentSheet.rows.some(
+        (r) => r.itemId === existing.id || r.itemName.trim().toLowerCase() === cleanName.toLowerCase()
+      );
+      if (!alreadyInSheet) {
+        const newRow: DailyOrderRow = {
+          id: `row_${currentSheet.date}_${existing.id}`,
+          itemId: existing.id,
+          itemName: existing.name,
+          unit: existing.unit,
+          supplierId: suppliers[0]?.id || '',
+          supplierName: suppliers[0]?.name || 'مورد عام',
+          costPrice: existing.defaultCostPrice,
+          salePrice: existing.defaultCostPrice,
+          quantities: groceries.reduce((acc, g) => {
+            acc[g.id] = 0;
+            return acc;
+          }, {} as Record<string, number>),
+          totalQuantity: 0,
+          totalCost: 0,
+          totalSale: 0,
+          profit: 0,
+          status: 'pending',
+        };
+        handleUpdateSheet({
+          ...currentSheet,
+          rows: [...currentSheet.rows, newRow],
+        });
+      }
+      return;
+    }
+
     const newItem: VegetableItem = {
       ...newItemData,
+      name: cleanName,
       id: `item_${Date.now()}`,
     };
 
     setItems((prev) => [...prev, newItem]);
 
     const newRow: DailyOrderRow = {
-      id: `row_${currentSheet.date}_${newItem.id}_${Date.now()}`,
+      id: `row_${currentSheet.date}_${newItem.id}`,
       itemId: newItem.id,
       itemName: newItem.name,
       unit: newItem.unit,
