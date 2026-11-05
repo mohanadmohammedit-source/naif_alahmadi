@@ -106,6 +106,7 @@ export interface SystemSettings {
     workerCanEditPrices: boolean;
     workerCanViewPurchaseCost: boolean;
     lockDailySheetAfterSave: boolean;
+    workerCanEditDate?: boolean;
   };
 }
 

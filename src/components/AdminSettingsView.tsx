@@ -1319,6 +1319,30 @@ VITE_SUPABASE_ANON_KEY="sb_publishable_DesBAjmOQwAYOtcKggQwFQ__vkAjme5"`}
                   />
                 </button>
               </div>
+
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex items-center justify-between gap-4">
+                <div>
+                  <div className="font-bold text-sm text-slate-900">
+                    السماح للعامل بتعديل تاريخ الكشف
+                  </div>
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    تمكين العامل من اختيار تاريخ سابق أو لاحق للكشف عند تسجيل بضاعة متأخرة (مغلق افتراضياً).
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleTogglePermission('workerCanEditDate')}
+                  className={`w-12 h-6 flex items-center rounded-full p-1 transition-colors cursor-pointer shrink-0 ${
+                    settings.permissions.workerCanEditDate ? 'bg-[#009432]' : 'bg-slate-300'
+                  }`}
+                >
+                  <div
+                    className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                      settings.permissions.workerCanEditDate ? '-translate-x-6' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
           </div>
         )}

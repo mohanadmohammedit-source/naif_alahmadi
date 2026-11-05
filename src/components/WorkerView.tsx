@@ -7,7 +7,7 @@ import {
   VegetableItem,
   SystemSettings,
 } from '../types';
-import { getYemenNow, extractTime12 } from '../services/storage';
+import { getYemenNow, extractTime12, getArabicDayName } from '../services/storage';
 import {
   Save,
   Plus,
@@ -25,6 +25,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Lock,
+  Calendar,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -81,6 +82,7 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
 
   // During morning or when not settled, fields remain editable freely. If locked after night save, manager edit mode overrides it.
   const isLocked = isManagerEditMode ? false : (settings.permissions.lockDailySheetAfterSave && sheet.status === 'settled' && currentRole === 'worker');
+  const canEditDate = currentRole === 'admin' || !!settings.permissions.workerCanEditDate;
 
   // Incremental stepper helper (+ / -)
   const handleStepQuantity = (rowId: string, groceryId: string, delta: number) => {
@@ -272,6 +274,34 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
 
     onAddAuditLog('تغيير صنف الصف', `${oldItemName} -> ${selectedItem.name}`, oldItemName, selectedItem.name);
     recalculateAndSave(updatedRows);
+  };
+
+  // Handler for Worksheet Date modification (for Admin or authorized Worker)
+  const handleDateChange = (newDateStr: string) => {
+    if (!newDateStr || newDateStr === sheet.date) return;
+    const canEdit = currentRole === 'admin' || !!settings.permissions.workerCanEditDate;
+    if (!canEdit || isLocked) {
+      alert('❌ غير مصرح لك بتعديل تاريخ الكشف!');
+      return;
+    }
+
+    const newDayName = getArabicDayName(newDateStr);
+    const oldDate = sheet.date;
+
+    onUpdateSheet({
+      ...sheet,
+      date: newDateStr,
+      dayName: newDayName,
+      updatedAt: `${getYemenNow().dateStr} ${getYemenNow().time12}`,
+    });
+
+    onAddAuditLog(
+      'تعديل تاريخ الكشف',
+      `من ${oldDate} إلى ${newDateStr}`,
+      oldDate,
+      newDateStr,
+      `تم تغيير تاريخ كشف اليومية إلى ${newDayName} (${newDateStr}) بواسطة ${currentRole === 'admin' ? 'المدير' : 'العامل الميداني'}`
+    );
   };
 
   // Purchase Status Toggle
@@ -619,14 +649,42 @@ export const WorkerView: React.FC<WorkerViewProps> = ({
               <h2 className="text-base sm:text-lg font-black text-slate-900 whitespace-nowrap">
                 كشف اليومية: {sheet.dayName}
               </h2>
-              <span className="text-xs font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-bold whitespace-nowrap inline-flex items-baseline gap-1.5">
-                <span>{sheet.date}</span>
-                {extractTime12(sheet.updatedAt, sheet.createdAt) && (
-                  <span className="text-[10px] text-slate-500 font-normal">
-                    {extractTime12(sheet.updatedAt, sheet.createdAt)}
-                  </span>
-                )}
-              </span>
+              {canEditDate && !isLocked ? (
+                <div
+                  className="inline-flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100/70 border border-amber-300 rounded-lg px-2 py-0.5 transition-all shadow-2xs group cursor-pointer"
+                  title="تعديل تاريخ الكشف (متاح للمدير أو العامل المصرح له)"
+                >
+                  <Calendar className="w-3.5 h-3.5 text-amber-700 shrink-0 group-hover:scale-110 transition-transform" />
+                  <input
+                    type="date"
+                    value={sheet.date}
+                    disabled={isLocked}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleDateChange(e.target.value);
+                      }
+                    }}
+                    className="text-xs font-mono font-black text-slate-800 bg-transparent border-none p-0 focus:outline-none cursor-pointer"
+                  />
+                  {extractTime12(sheet.updatedAt, sheet.createdAt) && (
+                    <span className="text-[10px] text-slate-500 font-normal mr-1 border-r border-amber-200 pr-1">
+                      {extractTime12(sheet.updatedAt, sheet.createdAt)}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <span
+                  className="text-xs font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-bold whitespace-nowrap inline-flex items-baseline gap-1.5"
+                  title="تاريخ الكشف (للقراءة فقط)"
+                >
+                  <span>{sheet.date}</span>
+                  {extractTime12(sheet.updatedAt, sheet.createdAt) && (
+                    <span className="text-[10px] text-slate-500 font-normal">
+                      {extractTime12(sheet.updatedAt, sheet.createdAt)}
+                    </span>
+                  )}
+                </span>
+              )}
               {sheet.notes?.includes('وردية الليل') && (
                 <span className="text-xs bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded-full flex items-center gap-1 whitespace-nowrap">
                   🌙 وردية الليل (تجهيز الغد)

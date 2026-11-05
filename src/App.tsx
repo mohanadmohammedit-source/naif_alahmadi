@@ -285,8 +285,17 @@ function AppInner() {
       updatedAt: `${targetWorksheetDate} 00:00:00`,
     };
 
-  // Update Daily Sheet Handler
+  // Update Daily Sheet Handler with permission validation on date modification
   const handleUpdateSheet = (updated: DailySheet) => {
+    if (updated.date !== currentSheet.date) {
+      const canEditDate = currentRole === 'admin' || !!settings.permissions.workerCanEditDate;
+      if (!canEditDate) {
+        alert('❌ غير مصرح لك بتعديل تاريخ الكشف!');
+        return;
+      }
+      setCurrentWorksheetDate(updated.date);
+    }
+
     setDailySheets((prev) => {
       const exists = prev.some((s) => s.id === updated.id);
       if (exists) {
@@ -300,6 +309,16 @@ function AppInner() {
   const handleSaveNightOrders = async (
     sheetToSave: DailySheet
   ): Promise<{ success: boolean; error?: string }> => {
+    const todayStr = getYemenNow().dateStr;
+    const effective = getEffectiveMarketDate();
+    if (sheetToSave.date !== todayStr && sheetToSave.date !== effective.dateStr) {
+      const canEditDate = currentRole === 'admin' || !!settings.permissions.workerCanEditDate;
+      if (!canEditDate) {
+        alert('❌ غير مصرح لك بحفظ كشف بتاريخ يختلف عن تاريخ اليوم!');
+        return { success: false, error: 'غير مصرح بتعديل تاريخ الكشف' };
+      }
+    }
+
     const nextSheets = dailySheets.some((s) => s.id === sheetToSave.id)
       ? dailySheets.map((s) => (s.id === sheetToSave.id ? sheetToSave : s))
       : [sheetToSave, ...dailySheets];
@@ -389,6 +408,17 @@ function AppInner() {
   // Normal Worker Settling: Mark settled, update ledgers, confirm cloud save, then zero out worksheet
   const handleSettleWorkerSheet = async (sheetToSettle: DailySheet) => {
     const yemen = getYemenNow();
+    const effectiveMarket = getEffectiveMarketDate();
+
+    // Security validation for date modification
+    if (sheetToSettle.date !== yemen.dateStr && sheetToSettle.date !== effectiveMarket.dateStr) {
+      const canEditDate = currentRole === 'admin' || !!settings.permissions.workerCanEditDate;
+      if (!canEditDate) {
+        alert('❌ غير مصرح لك بترحيل كشف بتاريخ يختلف عن تاريخ اليوم!');
+        return;
+      }
+    }
+
     const normalizedRows = sheetToSettle.rows.map((r) => {
       const sumGQty = Math.round(
         Object.values(r.quantities || {}).reduce((acc, q) => acc + (Number(q) || 0), 0) * 100

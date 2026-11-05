@@ -45,6 +45,7 @@ export const INITIAL_SETTINGS: SystemSettings = {
     workerCanEditPrices: false,
     workerCanViewPurchaseCost: false,
     lockDailySheetAfterSave: true,
+    workerCanEditDate: false,
   },
 };
 
